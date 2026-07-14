@@ -9,8 +9,8 @@ generator client {
 // enough when changing adapters.
 // See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
 datasource db {
-  provider = "sqlite"
-  url      = "file:dev.sqlite"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Session {
@@ -31,4 +31,33 @@ model Session {
   emailVerified Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
+}
+
+model ReviewRequest {
+  id            String   @id @default(cuid())
+  shop          String
+  orderId       String
+  orderNumber   String
+  customerEmail String
+  customerName  String
+  productName   String
+  sendAfter     DateTime
+  sent          Boolean  @default(false)
+  reviewToken   String   @unique @default(cuid())
+  createdAt     DateTime @default(now())
+}
+
+model Settings {
+  id           String   @id @default(cuid())
+  shop         String   @unique
+  delayDays    Int      @default(7)
+  maxPerOrder  Int      @default(3)
+  emailSubject String   @default("How was your {product}?")
+  emailBody    String   @default("Hi {name}, thanks for your recent order #{order}! We'd love to hear what you think of your {product}. Would you leave a quick review?")
+  logoUrl      String?
+  logoSize     Int      @default(50)
+  headerColor  String   @default("#000000")
+  textColor    String   @default("#333333")
+  customCss    String?
+  updatedAt    DateTime @updatedAt
 }

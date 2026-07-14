@@ -1,254 +1,284 @@
-import { useEffect } from "react";
-import type {
-  ActionFunctionArgs,
-  HeadersFunction,
-  LoaderFunctionArgs,
-} from "react-router";
-import { useFetcher } from "react-router";
-import { useAppBridge } from "@shopify/app-bridge-react";
+import { useState } from "react";
+import { useLoaderData, useFetcher } from "react-router";
+import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
-import { boundary } from "@shopify/shopify-app-react-router/server";
+import db from "../db.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
 
-  return null;
-};
-
-export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
-  const color = ["Red", "Orange", "Yellow", "Green"][
-    Math.floor(Math.random() * 4)
-  ];
   const response = await admin.graphql(
     `#graphql
-      mutation populateProduct($product: ProductCreateInput!) {
-        productCreate(product: $product) {
-          product {
-            id
-            title
-            handle
-            status
-            variants(first: 10) {
-              edges {
-                node {
-                  id
-                  price
-                  barcode
-                  createdAt
-                }
-              }
-            }
+    query getAllReviews {
+      products(first: 50) {
+        nodes {
+          metafield(namespace: "simple_reviews", key: "reviews") {
+            value
           }
         }
-      }`,
-    {
-      variables: {
-        product: {
-          title: `${color} Snowboard`,
-        },
-      },
-    },
-  );
-  const responseJson = await response.json();
-
-  const product = responseJson.data!.productCreate!.product!;
-  const variantId = product.variants.edges[0]!.node!.id!;
-
-  const variantResponse = await admin.graphql(
-    `#graphql
-    mutation shopifyReactRouterTemplateUpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-        productVariants {
-          id
-          price
-          barcode
-          createdAt
-        }
       }
-    }`,
-    {
-      variables: {
-        productId: product.id,
-        variants: [{ id: variantId, price: "100.00" }],
-      },
-    },
+    }`
   );
 
-  const variantResponseJson = await variantResponse.json();
+  const data = await response.json();
+  const products = data.data?.products?.nodes || [];
+
+  let totalReviews = 0;
+  let ratingSum = 0;
+  let pendingCount = 0;
+
+  for (const product of products) {
+    if (product.metafield?.value) {
+      const reviews = JSON.parse(product.metafield.value);
+      for (const review of reviews) {
+        totalReviews++;
+        ratingSum += review.rating;
+        if (!review.approved) pendingCount++;
+      }
+    }
+  }
+
+  const averageRating = totalReviews > 0 ? (ratingSum / totalReviews).toFixed(1) : "0.0";
+
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  const emailsSentThisMonth = await db.reviewRequest.count({
+    where: { shop: session.shop, sent: true, createdAt: { gte: startOfMonth } },
+  });
+
+  const upcomingEmails = await db.reviewRequest.findMany({
+    where: { shop: session.shop, sent: false },
+    orderBy: { sendAfter: "asc" },
+    take: 20,
+  });
+
+  const recentSentEmails = await db.reviewRequest.findMany({
+    where: { shop: session.shop, sent: true },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
 
   return {
-    product: responseJson!.data!.productCreate!.product,
-    variant:
-      variantResponseJson!.data!.productVariantsBulkUpdate!.productVariants,
+    totalReviews,
+    averageRating,
+    pendingCount,
+    emailsSentThisMonth,
+    emailsScheduled: upcomingEmails.length,
+    upcomingEmails,
+    recentSentEmails,
   };
 };
 
+export const action = async ({ request }: ActionFunctionArgs) => {
+  await authenticate.admin(request);
+  const formData = await request.formData();
+  const id = String(formData.get("id"));
+  const actionType = String(formData.get("actionType") || "cancel");
+
+  if (actionType === "cancel") {
+    await db.reviewRequest.delete({ where: { id } });
+  } else if (actionType === "sendNow") {
+    await db.reviewRequest.update({
+      where: { id },
+      data: { sendAfter: new Date() },
+    });
+  }
+
+  return { success: true };
+};
+
 export default function Index() {
-  const fetcher = useFetcher<typeof action>();
+  const [justSent, setJustSent] = useState<string | null>(null);
+  const {
+    totalReviews,
+    averageRating,
+    pendingCount,
+    emailsSentThisMonth,
+    emailsScheduled,
+    upcomingEmails,
+    recentSentEmails,
+  } = useLoaderData<typeof loader>();
 
-  const shopify = useAppBridge();
-  const isLoading =
-    ["loading", "submitting"].includes(fetcher.state) &&
-    fetcher.formMethod === "POST";
+  const fetcher = useFetcher();
 
-  useEffect(() => {
-    if (fetcher.data?.product?.id) {
-      shopify.toast.show("Product created");
-    }
-  }, [fetcher.data?.product?.id, shopify]);
+  const handleCancel = (id: string) => {
+    fetcher.submit({ id, actionType: "cancel" }, { method: "post" });
+  };
 
-  const generateProduct = () => fetcher.submit({}, { method: "POST" });
+  const handleSendNow = (id: string) => {
+    fetcher.submit({ id, actionType: "sendNow" }, { method: "post" });
+    setJustSent(id);
+  };
+
+  const cardStyle: React.CSSProperties = {
+    flex: 1,
+    background: "#fff",
+    border: "1px solid #ececec",
+    borderRadius: 12,
+    padding: 20,
+    boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+  };
+  const numberStyle = { fontSize: 30, fontWeight: 800 as const, color: "#111" };
+  const labelStyle = { color: "#777", fontSize: 13, marginTop: 4 };
+
+  const sectionCard: React.CSSProperties = {
+    background: "#fff",
+    border: "1px solid #ececec",
+    borderRadius: 12,
+    boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+    padding: 20,
+    marginTop: 24,
+  };
+
+  const sendNowBtn: React.CSSProperties = {
+    padding: "7px 16px",
+    background: "#111",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  };
+
+  const cancelBtn: React.CSSProperties = {
+    padding: "7px 16px",
+    background: "#fff",
+    color: "#d33",
+    border: "1px solid #ffd6d6",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  };
+
+  const thStyle: React.CSSProperties = { padding: "10px 8px", color: "#666", fontWeight: 600 };
+  const tdStyle: React.CSSProperties = { padding: "12px 8px" };
 
   return (
-    <s-page heading="Shopify app template">
-      <s-button slot="primary-action" onClick={generateProduct}>
-        Generate a product
-      </s-button>
+    <div style={{ maxWidth: 720, margin: "0 auto", padding: 24, fontFamily: "sans-serif", background: "#fafafa" }}>
+      <h1 style={{ marginBottom: 4, fontSize: 26 }}>Simple Reviews</h1>
+      <p style={{ color: "#777", marginBottom: 28 }}>Here's how your reviews are doing.</p>
 
-      <s-section heading="Congrats on creating a new Shopify app 🎉">
-        <s-paragraph>
-          This embedded app template uses{" "}
-          <s-link
-            href="https://shopify.dev/docs/apps/tools/app-bridge"
-            target="_blank"
-          >
-            App Bridge
-          </s-link>{" "}
-          interface examples like an{" "}
-          <s-link href="/app/additional">additional page in the app nav</s-link>
-          , as well as an{" "}
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql"
-            target="_blank"
-          >
-            Admin GraphQL
-          </s-link>{" "}
-          mutation demo, to provide a starting point for app development.
-        </s-paragraph>
-      </s-section>
-      <s-section heading="Get started with products">
-        <s-paragraph>
-          Generate a product with GraphQL and get the JSON output for that
-          product. Learn more about the{" "}
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
-            target="_blank"
-          >
-            productCreate
-          </s-link>{" "}
-          mutation in our API references.
-        </s-paragraph>
-        <s-stack direction="inline" gap="base">
-          <s-button
-            onClick={generateProduct}
-            {...(isLoading ? { loading: true } : {})}
-          >
-            Generate a product
-          </s-button>
-          {fetcher.data?.product && (
-            <s-button
-              onClick={() => {
-                shopify.intents.invoke?.("edit:shopify/Product", {
-                  value: fetcher.data?.product?.id,
-                });
-              }}
-              target="_blank"
-              variant="tertiary"
-            >
-              Edit product
-            </s-button>
-          )}
-        </s-stack>
-        {fetcher.data?.product && (
-          <s-section heading="productCreate mutation">
-            <s-stack direction="block" gap="base">
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre style={{ margin: 0 }}>
-                  <code>{JSON.stringify(fetcher.data.product, null, 2)}</code>
-                </pre>
-              </s-box>
+      <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
+        <div style={cardStyle}>
+          <div style={numberStyle}>{totalReviews}</div>
+          <div style={labelStyle}>Total reviews</div>
+        </div>
+        <div style={cardStyle}>
+          <div style={numberStyle}>{averageRating} ★</div>
+          <div style={labelStyle}>Average rating</div>
+        </div>
+        <div style={cardStyle}>
+          <div style={numberStyle}>{pendingCount}</div>
+          <div style={labelStyle}>Pending approval</div>
+        </div>
+      </div>
 
-              <s-heading>productVariantsBulkUpdate mutation</s-heading>
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre style={{ margin: 0 }}>
-                  <code>{JSON.stringify(fetcher.data.variant, null, 2)}</code>
-                </pre>
-              </s-box>
-            </s-stack>
-          </s-section>
+      <div style={{ display: "flex", gap: 16 }}>
+        <div style={{ ...cardStyle, background: "#f0f8f0" }}>
+          <div style={numberStyle}>{emailsSentThisMonth}</div>
+          <div style={labelStyle}>Emails sent this month</div>
+        </div>
+        <div style={{ ...cardStyle, background: "#fff8ec" }}>
+          <div style={numberStyle}>{emailsScheduled}</div>
+          <div style={labelStyle}>Emails scheduled (waiting)</div>
+        </div>
+      </div>
+
+      <div style={sectionCard}>
+        <h3 style={{ marginTop: 0, marginBottom: 16 }}>Upcoming review emails</h3>
+        {upcomingEmails.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "32px 16px", color: "#999" }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
+            <p style={{ margin: 0, fontSize: 14 }}>Nothing scheduled right now.</p>
+          </div>
+        ) : (
+          <div style={{ maxHeight: 360, overflowY: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 15 }}>
+              <thead>
+                <tr style={{ textAlign: "left", borderBottom: "2px solid #eee" }}>
+                  <th style={thStyle}>Customer</th>
+                  <th style={thStyle}>Product</th>
+                  <th style={thStyle}>Order</th>
+                  <th style={thStyle}>Sends on</th>
+                  <th style={thStyle}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {upcomingEmails.map((req, idx) => (
+                  <tr key={req.id} style={{ background: idx % 2 === 0 ? "#fff" : "#fafafa", borderBottom: "1px solid #f2f2f2" }}>
+                    <td style={tdStyle}>
+                      <div style={{ fontWeight: 600 }}>{req.customerName}</div>
+                      <div style={{ color: "#999", fontSize: 13 }}>{req.customerEmail}</div>
+                    </td>
+                    <td style={tdStyle}>
+                      {req.productName}
+                      {justSent === req.id ? (
+                        <div style={{ color: "#0a0", fontSize: 12, marginTop: 4, fontWeight: 600 }}>
+                          ✓ Will be sent soon
+                        </div>
+                      ) : null}
+                    </td>
+                   <td style={tdStyle}>
+                      <a href={`https://${req.shop}/admin/orders/${req.orderId}`} target="_blank" rel="noreferrer" style={{ color: "#0066cc", textDecoration: "none" }}>#{req.orderNumber}</a>
+                    </td>
+                    <td style={{ ...tdStyle, color: "#666" }}>
+                      {new Date(req.sendAfter).toLocaleDateString()}
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: "right" }}>
+                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                        <button style={sendNowBtn} onClick={() => handleSendNow(req.id)}>Send now</button>
+                        <button style={cancelBtn} onClick={() => handleCancel(req.id)}>Cancel</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-      </s-section>
+      </div>
 
-      <s-section slot="aside" heading="App template specs">
-        <s-paragraph>
-          <s-text>Framework: </s-text>
-          <s-link href="https://reactrouter.com/" target="_blank">
-            React Router
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Interface: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/api/app-home/using-polaris-components"
-            target="_blank"
-          >
-            Polaris web components
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>API: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql"
-            target="_blank"
-          >
-            GraphQL
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Database: </s-text>
-          <s-link href="https://www.prisma.io/" target="_blank">
-            Prisma
-          </s-link>
-        </s-paragraph>
-      </s-section>
-
-      <s-section slot="aside" heading="Next steps">
-        <s-unordered-list>
-          <s-list-item>
-            Build an{" "}
-            <s-link
-              href="https://shopify.dev/docs/apps/getting-started/build-app-example"
-              target="_blank"
-            >
-              example app
-            </s-link>
-          </s-list-item>
-          <s-list-item>
-            Explore Shopify&apos;s API with{" "}
-            <s-link
-              href="https://shopify.dev/docs/apps/tools/graphiql-admin-api"
-              target="_blank"
-            >
-              GraphiQL
-            </s-link>
-          </s-list-item>
-        </s-unordered-list>
-      </s-section>
-    </s-page>
+      <div style={sectionCard}>
+        <h3 style={{ marginTop: 0, marginBottom: 16 }}>Recently sent emails</h3>
+        {recentSentEmails.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "32px 16px", color: "#999" }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>✉️</div>
+            <p style={{ margin: 0, fontSize: 14 }}>No emails sent yet.</p>
+          </div>
+        ) : (
+          <div style={{ maxHeight: 360, overflowY: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 15 }}>
+              <thead>
+                <tr style={{ textAlign: "left", borderBottom: "2px solid #eee" }}>
+                  <th style={thStyle}>Customer</th>
+                  <th style={thStyle}>Product</th>
+                  <th style={thStyle}>Sent on</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentSentEmails.map((req, idx) => (
+                  <tr key={req.id} style={{ background: idx % 2 === 0 ? "#fff" : "#fafafa", borderBottom: "1px solid #f2f2f2" }}>
+                    <td style={tdStyle}>
+                      <div style={{ fontWeight: 600 }}>{req.customerName}</div>
+                      <div style={{ color: "#999", fontSize: 13 }}>{req.customerEmail}</div>
+                    </td>
+                    <td style={tdStyle}>{req.productName}</td>
+                    <td style={{ ...tdStyle, color: "#666" }}>
+                      {new Date(req.createdAt).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
-
-export const headers: HeadersFunction = (headersArgs) => {
-  return boundary.headers(headersArgs);
-};

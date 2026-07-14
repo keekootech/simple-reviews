@@ -1,0 +1,84 @@
+{% assign reviews = block.settings.product.metafields.simple_reviews.reviews.value %}
+
+{% assign approved_reviews = reviews | where: "approved", true %}
+{% assign total_reviews = approved_reviews.size %}
+
+{% assign rating_sum = 0 %}
+{% for review in approved_reviews %}
+  {% assign rating_sum = rating_sum | plus: review.rating %}
+{% endfor %}
+{% assign avg_rating = 0 %}
+{% if total_reviews > 0 %}
+  {% assign avg_rating = rating_sum | divided_by: total_reviews | round %}
+{% endif %}
+
+{% if total_reviews > 0 %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": {{ block.settings.product.title | json }},
+  "url": {{ shop.url | append: block.settings.product.url | json }},
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "{{ avg_rating }}",
+    "reviewCount": "{{ total_reviews }}"
+  },
+  "review": [
+    {% for review in approved_reviews %}
+    {
+      "@type": "Review",
+      "author": { "@type": "Person", "name": {{ review.customerName | json }} },
+      "reviewRating": { "@type": "Rating", "ratingValue": "{{ review.rating }}", "bestRating": "5" },
+      "reviewBody": {{ review.body | json }}
+    }{% unless forloop.last %},{% endunless %}
+    {% endfor %}
+  ]
+}
+</script>
+{% endif %}
+
+<div class="simple-reviews-widget">
+  {% if total_reviews > 0 %}
+    <div class="simple-reviews-summary">
+      <span class="simple-reviews-stars">
+        {% for i in (1..5) %}
+          {% if i <= avg_rating %}★{% else %}☆{% endif %}
+        {% endfor %}
+      </span>
+      <span class="simple-reviews-count">
+        {{ avg_rating }} out of 5 ({{ total_reviews }} review{% if total_reviews != 1 %}s{% endif %})
+      </span>
+    </div>
+
+    <div class="simple-reviews-list">
+      {% for review in approved_reviews %}
+        <div class="simple-reviews-item">
+          <div class="simple-reviews-item-stars">
+            {% for i in (1..5) %}
+              {% if i <= review.rating %}★{% else %}☆{% endif %}
+            {% endfor %}
+            {% if review.verified %}
+              <span class="simple-reviews-verified">✓ Verified buyer</span>
+            {% endif %}
+          </div>
+          <p class="simple-reviews-body">{{ review.body }}</p>
+          <div class="simple-reviews-author">— {{ review.customerName }}</div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="simple-reviews-empty">No reviews yet. Be the first to review this product!</p>
+  {% endif %}
+</div>
+
+{% schema %}
+{
+  "name": "Simple Reviews",
+  "target": "section",
+  "settings": [
+    { "type": "product", "id": "product", "label": "Product", "autofill": true }
+  ],
+  "stylesheet": "simple-reviews.css"
+}
+{% endschema %}

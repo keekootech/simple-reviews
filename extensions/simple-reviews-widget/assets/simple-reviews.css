@@ -1,0 +1,41 @@
+.simple-reviews-widget {
+  font-family: inherit;
+  max-width: 680px;
+}
+.simple-reviews-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.simple-reviews-stars {
+  color: #000;
+  font-size: 18px;
+}
+.simple-reviews-count {
+  color: #666;
+  font-size: 14px;
+}
+.simple-reviews-item {
+  border-top: 1px solid #eee;
+  padding: 12px 0;
+}
+.simple-reviews-item-stars {
+  color: #000;
+  font-size: 16px;
+}
+.simple-reviews-verified {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #0a0;
+}
+.simple-reviews-body {
+  margin: 6px 0;
+}
+.simple-reviews-author {
+  font-size: 13px;
+  color: #666;
+}
+.simple-reviews-empty {
+  color: #666;
+}
