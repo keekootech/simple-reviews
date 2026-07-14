@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "ec3af02e24ecda47a1f714039e9dc5e9"
-application_url = "https://example.com"
+application_url = "https://happy-motivation-production-4bcd.up.railway.app"
 embedded = true
 name = "Simple Reviews"
 
@@ -20,12 +20,19 @@ api_version = "2026-10"
   topics = [ "app/scopes_update" ]
 
   [[webhooks.subscriptions]]
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+  uri = "https://happy-motivation-production-4bcd.up.railway.app/webhooks"
+
+  [[webhooks.subscriptions]]
   uri = "/webhooks/orders/fulfilled"
   topics = [ "orders/fulfilled" ]
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [
+  "https://happy-motivation-production-4bcd.up.railway.app/auth/callback",
+  "https://happy-motivation-production-4bcd.up.railway.app/auth/shopify/callback",
+  "https://happy-motivation-production-4bcd.up.railway.app/api/auth/callback"
+]
 
 [build]
-include_config_on_deploy = true
-automatically_update_urls_on_dev = true
+automatically_update_urls_on_dev = false
