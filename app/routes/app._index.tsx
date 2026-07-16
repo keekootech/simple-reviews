@@ -112,55 +112,49 @@ export default function Index() {
     setJustSent(id);
   };
 
+  const stat = (value: string | number, label: string) => (
+    <s-box padding="large" borderWidth="base" borderRadius="base" background="subdued">
+      <s-stack direction="block" gap="small-500">
+        <s-text type="strong">{String(value)}</s-text>
+        <s-text color="subdued">{label}</s-text>
+      </s-stack>
+    </s-box>
+  );
+
   return (
     <s-page heading="Simple Reviews">
-      <s-stack direction="inline" gap="base">
-        <s-section>
-          <s-heading>{totalReviews}</s-heading>
-          <s-text color="subdued">Total reviews</s-text>
-        </s-section>
-        <s-section>
-          <s-heading>{averageRating} ★</s-heading>
-          <s-text color="subdued">Average rating</s-text>
-        </s-section>
-        <s-section>
-          <s-heading>{pendingCount}</s-heading>
-          <s-text color="subdued">Pending approval</s-text>
-        </s-section>
-      </s-stack>
-
-      <s-stack direction="inline" gap="base">
-        <s-section>
-          <s-heading>{emailsSentThisMonth}</s-heading>
-          <s-text color="subdued">Emails sent this month</s-text>
-        </s-section>
-        <s-section>
-          <s-heading>{emailsScheduled}</s-heading>
-          <s-text color="subdued">Emails scheduled (waiting)</s-text>
-        </s-section>
-      </s-stack>
+      <s-section heading="Overview">
+        <s-grid gridTemplateColumns="1fr 1fr 1fr" gap="base">
+          {stat(totalReviews, "Total reviews")}
+          {stat(`${averageRating} ★`, "Average rating")}
+          {stat(pendingCount, "Pending approval")}
+          {stat(emailsSentThisMonth, "Emails sent this month")}
+          {stat(emailsScheduled, "Emails scheduled")}
+        </s-grid>
+      </s-section>
 
       <s-section heading="Upcoming review emails">
         {upcomingEmails.length === 0 ? (
           <s-text color="subdued">Nothing scheduled right now.</s-text>
         ) : (
-          <s-stack direction="block" gap="base">
+          <s-stack direction="block" gap="none">
             {upcomingEmails.map((req) => (
-              <s-box key={req.id} padding="base" borderWidth="base" borderRadius="base">
-                <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+              <s-box key={req.id} paddingBlock="base" borderBlockEnd="base">
+                <s-grid gridTemplateColumns="2fr 1fr auto" gap="base" alignItems="center">
                   <s-stack direction="block" gap="small-500">
-                    <s-heading>{req.customerName}</s-heading>
-                    <s-text color="subdued">{req.productName} · #{req.orderNumber}</s-text>
-                    <s-text color="subdued">Sends {new Date(req.sendAfter).toLocaleDateString()}</s-text>
-                    {justSent === req.id ? (
-                      <s-badge tone="success">Will be sent soon</s-badge>
-                    ) : null}
+                    <s-text type="strong">{req.customerName}</s-text>
+                    <s-text color="subdued">{req.customerEmail}</s-text>
+                  </s-stack>
+                  <s-stack direction="block" gap="small-500">
+                    <s-text>{req.productName}</s-text>
+                    <s-text color="subdued">#{req.orderNumber} · {new Date(req.sendAfter).toLocaleDateString()}</s-text>
+                    {justSent === req.id ? <s-badge tone="success">Queued</s-badge> : null}
                   </s-stack>
                   <s-stack direction="inline" gap="small">
                     <s-button onClick={() => handleSendNow(req.id)}>Send now</s-button>
                     <s-button tone="critical" onClick={() => handleCancel(req.id)}>Cancel</s-button>
                   </s-stack>
-                </s-stack>
+                </s-grid>
               </s-box>
             ))}
           </s-stack>
@@ -171,16 +165,17 @@ export default function Index() {
         {recentSentEmails.length === 0 ? (
           <s-text color="subdued">No emails sent yet.</s-text>
         ) : (
-          <s-stack direction="block" gap="base">
+          <s-stack direction="block" gap="none">
             {recentSentEmails.map((req) => (
-              <s-box key={req.id} padding="base" borderWidth="base" borderRadius="base">
-                <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+              <s-box key={req.id} paddingBlock="base" borderBlockEnd="base">
+                <s-grid gridTemplateColumns="2fr 1fr auto" gap="base" alignItems="center">
                   <s-stack direction="block" gap="small-500">
-                    <s-heading>{req.customerName}</s-heading>
-                    <s-text color="subdued">{req.productName}</s-text>
+                    <s-text type="strong">{req.customerName}</s-text>
+                    <s-text color="subdued">{req.customerEmail}</s-text>
                   </s-stack>
+                  <s-text>{req.productName}</s-text>
                   <s-text color="subdued">{new Date(req.createdAt).toLocaleDateString()}</s-text>
-                </s-stack>
+                </s-grid>
               </s-box>
             ))}
           </s-stack>
